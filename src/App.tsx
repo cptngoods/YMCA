@@ -21,7 +21,17 @@ import {
   Smartphone,
   Box,
   PenTool,
-  X
+  X,
+  Sparkles,
+  ScanFace,
+  Ship,
+  Clapperboard,
+  Users,
+  Sofa,
+  Layers,
+  Languages,
+  Repeat,
+  ShieldCheck
 } from 'lucide-react';
 
 const staggerContainer = {
@@ -71,6 +81,7 @@ export default function App() {
         <PortfolioSection />
         <CreatorsSection />
         <PricingSection />
+        <GenerativeSection />
         <AddOnsSection />
         <FooterSection />
       </div>
@@ -95,7 +106,7 @@ function Navbar() {
         <div className="font-display font-bold text-2xl tracking-tight text-white italic">
           YMCA<span className="text-[#D4AF37] not-italic">.</span>
         </div>
-        <div className="hidden md:flex space-x-8 text-sm tracking-widest text-[#C0C0C0] font-medium font-display">
+        <div className="hidden md:flex space-x-6 lg:space-x-8 text-sm tracking-widest text-[#C0C0C0] font-medium font-display">
           <a href="#story" className="hover:text-white transition-colors relative group">
             Our Story
             <span className="absolute -bottom-2 left-0 w-full h-[2px] bg-[#D4AF37] scale-x-0 group-hover:scale-x-100 origin-left transition-transform duration-300"></span>
@@ -110,6 +121,10 @@ function Navbar() {
           </a>
           <a href="#services" className="hover:text-white transition-colors relative group">
             Services
+            <span className="absolute -bottom-2 left-0 w-full h-[2px] bg-[#D4AF37] scale-x-0 group-hover:scale-x-100 origin-left transition-transform duration-300"></span>
+          </a>
+          <a href="#generative" className="hover:text-white transition-colors relative group">
+            AI Studio
             <span className="absolute -bottom-2 left-0 w-full h-[2px] bg-[#D4AF37] scale-x-0 group-hover:scale-x-100 origin-left transition-transform duration-300"></span>
           </a>
         </div>
@@ -922,6 +937,358 @@ function PricingSection() {
   );
 }
 
+function GenerativeSection() {
+  const [selectedService, setSelectedService] = useState<any | null>(null);
+  const [sceneIndex, setSceneIndex] = useState(0);
+
+  const avatarScenes = [
+    { prompt: "Costa Smeralda · golden hour, low drone orbit", tint: "from-[#D4AF37]/40 via-[#D4AF37]/5 to-[#030508]/80" },
+    { prompt: "Exuma Cays · turquoise midday, anchored", tint: "from-[#14B8A6]/35 via-[#0EA5E9]/5 to-[#030508]/80" },
+    { prompt: "Lofoten · winter blue hour, northern lights", tint: "from-[#1E3A8A]/55 via-[#4F46E5]/10 to-[#030508]/85" },
+    { prompt: "Monaco · Grand Prix week, night illumination", tint: "from-[#7C3AED]/30 via-[#D4AF37]/10 to-[#030508]/85" }
+  ];
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setSceneIndex((prev) => (prev + 1) % avatarScenes.length);
+    }, 3200);
+    return () => clearInterval(interval);
+  }, []);
+
+  const avatarDeliverables = [
+    "Reference capture: 300+ calibrated stills, drone orbit & interior pass",
+    "Custom-trained avatar model, exclusive to your vessel",
+    "50 launch visuals across 5 destinations & seasons",
+    "3 generative video clips (16:9 + 9:16)",
+    "Brand persona: name, voice & tone guide for AI copy"
+  ];
+
+  const services = [
+    {
+      icon: <ScanFace className="w-8 h-8" />,
+      title: "Captain & Crew Avatars",
+      description: "Consent-based AI presenters for multilingual video",
+      price: "From €2,500",
+      details: "Your captain or chief stew, trained with their written consent, presents walkthroughs, welcome messages and itinerary updates in 30+ languages. Record once, update any time, without booking a new shoot.",
+      techSpecs: ["Likeness rights & consent agreement included", "Lip-synced video in 30+ languages", "Welcome, walkthrough & itinerary formats", "Disclosed as AI-generated, EU AI Act ready"]
+    },
+    {
+      icon: <Ship className="w-8 h-8" />,
+      title: "Virtual Destination Shoots",
+      description: "Your yacht in any anchorage, without the passage",
+      price: "From €1,800",
+      details: "Pitch the Bahamas season while still berthed in Antibes. We place your Yacht Avatar into photoreal destination plates, matched for sun angle, water colour, wake and reflections.",
+      techSpecs: ["Mediterranean, Caribbean, Indian Ocean & Arctic plates", "Physically matched light, wake & reflections", "Seasonal and time-of-day variants", "Hybrid with real aerial plates on request"]
+    },
+    {
+      icon: <Clapperboard className="w-8 h-8" />,
+      title: "Generative Ad Films",
+      description: "AI video spots & reels for paid social",
+      price: "From €3,000",
+      details: "Short cinematic ads built around your avatar and real footage, cut for Meta, TikTok and YouTube, with dozens of creative variants ready for A/B testing.",
+      techSpecs: ["15s / 30s / 60s spots in 9:16, 1:1 and 16:9", "10–40 creative variants per campaign", "AI-assisted sound design & licensed music", "Performance review and iteration loop"]
+    },
+    {
+      icon: <Users className="w-8 h-8" />,
+      title: "Virtual Lifestyle Scenes",
+      description: "Guests, dining & water-toy moments, generated",
+      price: "From €1,200",
+      details: "Lifestyle imagery without model fees, releases or weather risk. Sunset dinners, tablescapes and water-toy action with synthetic, non-identifiable guests, art-directed to your charter profile.",
+      techSpecs: ["Synthetic, non-identifiable people only", "Art direction by guest profile: family, couples, corporate", "Retouched to editorial standard", "Unlimited usage licence"]
+    },
+    {
+      icon: <Sofa className="w-8 h-8" />,
+      title: "Refit & Interior Restyling",
+      description: "Alternative interiors, before a single cushion moves",
+      price: "From €2,200",
+      details: "Show buyers what the yacht could become. We generate photoreal restyling concepts of salons, cabins and decks, from classic to contemporary, to support sales, refits and owner decisions.",
+      techSpecs: ["3–5 style directions per space", "Before/after sliders for web & brochure", "Designer-ready mood boards", "Material and palette callouts"]
+    },
+    {
+      icon: <Layers className="w-8 h-8" />,
+      title: "New-Build Concept Renders",
+      description: "Market the yacht before she touches water",
+      price: "From €5,000",
+      details: "For shipyards and designers: we turn GA drawings and 3D files into cinematic concept visuals and teaser films, ready for boat shows months before launch.",
+      techSpecs: ["Input: GA plans, 3D CAD or design sketches", "Hero stills & 30–60s teaser film", "Boat-show screen and print formats", "NDA-protected, confidential pipeline"]
+    },
+    {
+      icon: <Languages className="w-8 h-8" />,
+      title: "AI Voice & Localisation",
+      description: "Your films, re-voiced in 30+ languages",
+      price: "From €400 / language",
+      details: "Existing films and reels re-voiced with natural AI narration or a consented voice clone, lip-synced and subtitled for every key charter market.",
+      techSpecs: ["30+ languages incl. Arabic, Mandarin & Brazilian Portuguese", "Voice cloning with written consent only", "Lip-sync and burned-in subtitles", "Native-speaker QA on key markets"]
+    },
+    {
+      icon: <Repeat className="w-8 h-8" />,
+      title: "Generative Content Engine",
+      description: "A monthly flow of fresh, on-brand content",
+      price: "From €1,500 / month",
+      details: "A retainer that keeps your feeds alive all year: weekly avatar visuals, seasonal campaigns and timely reels, planned in a 30-day calendar and approved by you before anything goes live.",
+      techSpecs: ["40–120 assets per month", "Seasonal and event-driven campaigns", "Human creative review on every asset", "Monthly performance report"]
+    }
+  ];
+
+  const trustPoints = [
+    "Consent-first likeness",
+    "C2PA content credentials",
+    "EU AI Act disclosure labelling",
+    "Human art direction"
+  ];
+
+  // Prevent scrolling when modal is open
+  useEffect(() => {
+    if (selectedService) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = 'unset';
+    }
+    return () => {
+      document.body.style.overflow = 'unset';
+    };
+  }, [selectedService]);
+
+  return (
+    <section id="generative" className="py-32 px-6 relative">
+      <div className="max-w-7xl mx-auto">
+        <motion.div
+          variants={staggerContainer}
+          initial="hidden"
+          whileInView="visible"
+          viewport={{ once: true, margin: "-10%" }}
+          className="text-center mb-20"
+        >
+          <motion.div variants={fadeUpItem} className="inline-flex items-center gap-2 px-3 py-1 bg-[#D4AF37]/10 border border-[#D4AF37]/30 rounded-full mb-6">
+            <Sparkles className="w-3 h-3 text-[#D4AF37]" />
+            <span className="text-[10px] uppercase tracking-[0.3em] text-[#D4AF37] font-bold">New Category</span>
+          </motion.div>
+          <motion.h2 variants={fadeUpItem} className="font-display font-semibold tracking-tight text-4xl md:text-5xl mb-4">Generative content studio</motion.h2>
+          <motion.p variants={fadeUpItem} className="text-[#C0C0C0] uppercase tracking-widest text-sm font-medium">YMCA.AI — Yacht Avatars & Beyond</motion.p>
+        </motion.div>
+
+        {/* Flagship: Yacht Avatar */}
+        <motion.div
+          variants={staggerContainer}
+          initial="hidden"
+          whileInView="visible"
+          viewport={{ once: true, margin: "-10%" }}
+          className="mb-16"
+        >
+          <motion.div variants={fadeUpItem} className="glass-panel rounded-3xl p-6 md:p-10 border-[#D4AF37]/20 bg-gradient-to-br from-[#030508]/90 to-[#050A14]/90 relative overflow-hidden group">
+            <div className="absolute top-0 left-0 w-72 h-72 bg-[#D4AF37]/5 blur-[100px] rounded-full -translate-y-1/2 -translate-x-1/2 group-hover:bg-[#D4AF37]/10 transition-colors duration-700" />
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-14 items-stretch relative z-10">
+              <div className="text-left flex flex-col">
+                <p className="text-[#C0C0C0] text-xs font-bold uppercase tracking-widest mb-2">Flagship Offer</p>
+                <h3 className="font-display font-bold text-4xl md:text-5xl mb-4 text-white tracking-tight">Yacht Avatar</h3>
+                <p className="text-[#D4AF37] text-lg font-light mb-6">A permanent AI digital twin of your vessel.</p>
+                <p className="text-[#C0C0C0] font-light leading-relaxed mb-8">
+                  We train a dedicated generative model on your yacht — hull lines, livery, superstructure and interiors — from a single reference shoot. Once trained, your Yacht Avatar can be placed in any destination, season, light or camera angle, producing on-brand stills and video on demand, without moving the boat or booking a crew.
+                </p>
+
+                <ul className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4 mb-10">
+                  {avatarDeliverables.map((item, i) => (
+                    <li key={i} className="flex items-start text-sm text-[#C0C0C0]">
+                      <CheckCircle2 className="w-5 h-5 mr-3 shrink-0 text-[#D4AF37] opacity-80" />
+                      <span className="leading-relaxed font-light">{item}</span>
+                    </li>
+                  ))}
+                </ul>
+
+                <div className="mt-auto flex flex-col sm:flex-row sm:items-center gap-6 pt-8 border-t border-white/10">
+                  <div>
+                    <div className="text-2xl font-light text-[#D4AF37]">From €4,500</div>
+                    <p className="text-xs text-[#C0C0C0] uppercase tracking-widest mt-1">One-time setup</p>
+                  </div>
+                  <a
+                    href="#contact"
+                    className="sm:ml-auto inline-flex items-center justify-center px-8 py-4 bg-[#D4AF37] text-[#030508] hover:bg-white transition-all duration-500 rounded-full font-bold uppercase tracking-widest text-xs shadow-[0_0_30px_rgba(212,175,55,0.3)] hover:shadow-[0_0_40px_rgba(255,255,255,0.2)]"
+                  >
+                    Create My Avatar
+                  </a>
+                </div>
+              </div>
+
+              {/* Avatar console visual */}
+              <div className="relative min-h-[420px] lg:min-h-[560px] rounded-2xl overflow-hidden border border-white/10">
+                <img
+                  src="https://images.unsplash.com/photo-1605281317010-fe5ffe798166?q=80&w=1600&auto=format&fit=crop"
+                  alt="Yacht used as avatar reference"
+                  className="absolute inset-0 w-full h-full object-cover"
+                  referrerPolicy="no-referrer"
+                />
+                <AnimatePresence>
+                  <motion.div
+                    key={sceneIndex}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 1.2 }}
+                    className={`absolute inset-0 bg-gradient-to-t ${avatarScenes[sceneIndex].tint}`}
+                  />
+                </AnimatePresence>
+                <div
+                  className="absolute inset-0 opacity-40 pointer-events-none"
+                  style={{ backgroundImage: 'linear-gradient(rgba(212,175,55,0.12) 1px, transparent 1px), linear-gradient(90deg, rgba(212,175,55,0.12) 1px, transparent 1px)', backgroundSize: '48px 48px' }}
+                />
+                <motion.div
+                  className="absolute left-0 right-0 h-px bg-[#D4AF37] shadow-[0_0_20px_4px_rgba(212,175,55,0.5)] pointer-events-none"
+                  animate={{ top: ['8%', '92%'] }}
+                  transition={{ duration: 4, repeat: Infinity, repeatType: 'reverse', ease: 'easeInOut' }}
+                />
+
+                {/* Corner brackets */}
+                <div className="absolute top-5 left-5 w-6 h-6 border-t-2 border-l-2 border-[#D4AF37]/70" />
+                <div className="absolute top-5 right-5 w-6 h-6 border-t-2 border-r-2 border-[#D4AF37]/70" />
+                <div className="absolute bottom-5 left-5 w-6 h-6 border-b-2 border-l-2 border-[#D4AF37]/70" />
+                <div className="absolute bottom-5 right-5 w-6 h-6 border-b-2 border-r-2 border-[#D4AF37]/70" />
+
+                <div className="absolute top-8 left-8 flex items-center gap-2 px-3 py-1.5 bg-[#030508]/60 backdrop-blur-md border border-white/10 rounded-full">
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#D4AF37] animate-pulse" />
+                  <span className="text-[10px] uppercase tracking-[0.25em] text-white font-bold">Yacht Avatar</span>
+                </div>
+
+                <div className="absolute bottom-8 left-8 right-8 glass-panel rounded-xl px-5 py-4">
+                  <p className="text-[10px] uppercase tracking-[0.25em] text-[#D4AF37] font-bold mb-2">Prompt</p>
+                  <AnimatePresence mode="wait">
+                    <motion.p
+                      key={sceneIndex}
+                      initial={{ opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -8 }}
+                      transition={{ duration: 0.4 }}
+                      className="text-white text-sm md:text-base font-light"
+                    >
+                      {avatarScenes[sceneIndex].prompt}
+                    </motion.p>
+                  </AnimatePresence>
+                  <div className="flex gap-1.5 mt-4">
+                    {avatarScenes.map((_, i) => (
+                      <div key={i} className={`h-0.5 flex-1 rounded-full transition-colors duration-500 ${i === sceneIndex ? 'bg-[#D4AF37]' : 'bg-white/15'}`} />
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        </motion.div>
+
+        {/* Generative services */}
+        <motion.div
+          className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6"
+          variants={staggerContainer}
+          initial="hidden"
+          whileInView="visible"
+          viewport={{ once: true, margin: "-10%" }}
+        >
+          {services.map((service, index) => (
+            <motion.div
+              key={index}
+              variants={fadeUpItem}
+            >
+              <div
+                onClick={() => setSelectedService(service)}
+                className="glass-panel p-8 rounded-2xl flex flex-col items-center text-center group glass-panel-hover cursor-pointer h-full"
+              >
+                <div className="mb-6 text-[#C0C0C0] group-hover:text-[#D4AF37] transition-colors duration-500 transform group-hover:scale-110">
+                  {service.icon}
+                </div>
+                <h3 className="font-display text-2xl font-semibold mb-2 group-hover:text-[#D4AF37] transition-colors duration-500">{service.title}</h3>
+                <p className="text-sm text-[#C0C0C0] font-light mb-4">{service.description}</p>
+                <p className="text-sm text-[#D4AF37] font-light">{service.price}</p>
+                <div className="mt-auto pt-4 opacity-30 group-hover:opacity-100 transition-all duration-500 flex items-center text-[#D4AF37] text-[10px] uppercase tracking-[0.2em] font-bold">
+                  <span>Details</span>
+                  <ChevronRight className="w-3 h-3 ml-1 transform group-hover:translate-x-1 transition-transform duration-300" />
+                </div>
+              </div>
+            </motion.div>
+          ))}
+        </motion.div>
+
+        {/* Responsible AI */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true, margin: "-10%" }}
+          transition={{ duration: 0.6 }}
+          className="mt-12 flex flex-wrap items-center justify-center gap-x-10 gap-y-4"
+        >
+          <div className="flex items-center gap-2 text-white text-xs font-bold uppercase tracking-widest whitespace-nowrap">
+            <ShieldCheck className="w-4 h-4 text-[#D4AF37]" />
+            Responsible AI
+          </div>
+          {trustPoints.map((point, i) => (
+            <div key={i} className="flex items-center gap-3 text-sm text-white/70 whitespace-nowrap">
+              <div className="w-1.5 h-1.5 rounded-full bg-[#D4AF37]" />
+              {point}
+            </div>
+          ))}
+        </motion.div>
+      </div>
+
+      <AnimatePresence>
+        {selectedService && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6"
+            onClick={() => setSelectedService(null)}
+          >
+            <div className="absolute inset-0 bg-[#030508]/90 backdrop-blur-xl" />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative w-full max-w-2xl bg-[#0a0a16] border border-white/10 rounded-2xl overflow-hidden shadow-2xl flex flex-col"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <button
+                onClick={() => setSelectedService(null)}
+                className="absolute top-4 right-4 z-30 p-2 bg-black/50 hover:bg-[#D4AF37] text-white hover:text-black rounded-full transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+
+              <div className="p-8 md:p-12 overflow-y-auto custom-scrollbar max-h-[80vh]">
+                <div className="mb-6 text-[#D4AF37]">
+                  {selectedService.icon}
+                </div>
+                <h3 className="font-display text-3xl font-bold mb-2 text-white">{selectedService.title}</h3>
+                <div className="text-xl font-light text-[#D4AF37] mb-6">{selectedService.price}</div>
+                <p className="text-[#C0C0C0] font-light leading-relaxed mb-8">
+                  {selectedService.details}
+                </p>
+
+                <div className="mb-8">
+                  <h4 className="text-sm font-bold uppercase tracking-widest text-white mb-4">What's Included</h4>
+                  <ul className="space-y-3">
+                    {selectedService.techSpecs.map((spec: string, idx: number) => (
+                      <li key={idx} className="flex items-start text-[#C0C0C0] text-sm">
+                        <CheckCircle2 className="w-4 h-4 text-[#D4AF37] mr-3 mt-0.5 shrink-0" />
+                        <span>{spec}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+
+                <a
+                  href="#contact"
+                  onClick={() => setSelectedService(null)}
+                  className="inline-flex items-center justify-center px-8 py-4 bg-white/5 border border-white/20 text-white hover:bg-[#D4AF37] hover:border-[#D4AF37] hover:text-[#030508] transition-all duration-300 uppercase tracking-widest text-xs font-bold rounded-full w-full sm:w-auto"
+                >
+                  Request This Service <ChevronRight className="w-4 h-4 ml-2" />
+                </a>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </section>
+  );
+}
+
 function AddOnsSection() {
   const [selectedAddon, setSelectedAddon] = useState<any | null>(null);
   const [fontIndex, setFontIndex] = useState(0);
@@ -1151,7 +1518,8 @@ function FooterSection() {
 
   const availableSkills = [
     "Aerial", "FPV", "Post-Production", "Copywriting", 
-    "Photography", "Videography", "Direction", "Color Grading", "Sound Design"
+    "Photography", "Videography", "Direction", "Color Grading", "Sound Design",
+    "Generative AI"
   ];
 
   const toggleSkill = (skill: string) => {
@@ -1222,6 +1590,7 @@ function FooterSection() {
                     <option value="essential" className="bg-[#0A192F]">Tier 1 - Essential</option>
                     <option value="professional" className="bg-[#0A192F]">Tier 2 - Professional</option>
                     <option value="signature" className="bg-[#0A192F]">Tier 3 - Signature</option>
+                    <option value="generative" className="bg-[#0A192F]">Generative Content / Yacht Avatar</option>
                     <option value="custom" className="bg-[#0A192F]">Custom Project</option>
                   </select>
                 </div>
