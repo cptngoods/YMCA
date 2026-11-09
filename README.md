@@ -15,6 +15,8 @@ View your app in AI Studio: https://ai.studio/apps/1bde66a3-5ca7-49a4-9929-0e74d
 
 1. Install dependencies:
    `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
+2. Copy `.env.example` to `.env.local` and set `VITE_FORM_ENDPOINT` to the n8n webhook
+   that should receive quote requests and creator applications. Without it, both forms
+   show an error instead of sending.
 3. Run the app:
    `npm run dev`

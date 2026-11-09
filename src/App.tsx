@@ -3,8 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useEffect, useState, Suspense } from 'react';
-import { motion, AnimatePresence, useScroll, useTransform } from 'motion/react';
+import React, { createContext, useContext, useEffect, useId, useRef, useState } from 'react';
+import { motion, AnimatePresence, MotionConfig, useInView, useReducedMotion, useScroll, useTransform } from 'motion/react';
 import { 
   Camera, 
   CheckCircle2, 
@@ -31,7 +31,10 @@ import {
   Layers,
   Languages,
   Repeat,
-  ShieldCheck
+  ShieldCheck,
+  Menu,
+  Pause,
+  Loader2
 } from 'lucide-react';
 
 const staggerContainer = {
@@ -56,6 +59,111 @@ const fadeUpItem = {
   },
 };
 
+type FormStatus = 'idle' | 'sending' | 'sent' | 'error';
+
+// Posts a form to the n8n webhook configured in VITE_FORM_ENDPOINT.
+async function submitForm(form: 'quote-request' | 'creator-application', data: Record<string, unknown>) {
+  const endpoint = import.meta.env.VITE_FORM_ENDPOINT;
+  if (!endpoint) {
+    console.error('VITE_FORM_ENDPOINT is not set; form submissions cannot be delivered.');
+    throw new Error('Form endpoint not configured');
+  }
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 15000);
+  try {
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ form, submittedAt: new Date().toISOString(), page: window.location.href, ...data }),
+      signal: controller.signal,
+    });
+    if (!response.ok) throw new Error(`Form endpoint responded ${response.status}`);
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+// Background motion (hero film, aurora, looping showcases) can be paused site-wide.
+// It starts paused when the visitor's system asks for reduced motion.
+const MotionPauseContext = createContext<{ paused: boolean; toggle: () => void }>({ paused: false, toggle: () => {} });
+const useMotionPause = () => useContext(MotionPauseContext);
+
+// Dialog behaviour shared by every modal: focus moves in, Tab stays inside,
+// Escape closes, and focus returns to the control that opened it.
+function useDialog(isOpen: boolean, onClose: () => void) {
+  const panelRef = useRef<HTMLDivElement>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const opener = document.activeElement as HTMLElement | null;
+    const focusables = (): HTMLElement[] => {
+      const panel: HTMLElement | null = panelRef.current;
+      const nodes = panel?.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), input:not([type="hidden"]):not([tabindex="-1"]), select, textarea, video[controls], [tabindex]:not([tabindex="-1"])'
+      );
+      return nodes ? Array.from(nodes).filter((el) => el.offsetParent !== null) : [];
+    };
+
+    const frame = requestAnimationFrame(() => (focusables()[0] ?? panelRef.current)?.focus());
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        onCloseRef.current();
+        return;
+      }
+      if (e.key !== 'Tab') return;
+      const items = focusables();
+      if (!items.length) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      cancelAnimationFrame(frame);
+      document.removeEventListener('keydown', onKeyDown);
+      opener?.focus({ preventScroll: true });
+    };
+  }, [isOpen]);
+
+  return panelRef;
+}
+
+// A transparent button stretched over a card, so the whole card opens with mouse,
+// touch or keyboard while its heading keeps its own semantics.
+function CardButton({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      aria-haspopup="dialog"
+      onClick={onClick}
+      className="absolute inset-0 z-30 rounded-2xl cursor-pointer"
+    />
+  );
+}
+
+function DialogCloseButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label="Close"
+      className="absolute top-4 right-4 z-30 w-11 h-11 flex items-center justify-center bg-black/50 hover:bg-[#D4AF37] text-white hover:text-black rounded-full transition-colors"
+    >
+      <X className="w-5 h-5" />
+    </button>
+  );
+}
+
 function AuroraBackground() {
   return (
     <div className="aurora-bg">
@@ -70,27 +178,48 @@ function AuroraBackground() {
 }
 
 export default function App() {
+  const prefersReducedMotion = useReducedMotion();
+  const [motionPaused, setMotionPaused] = useState(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+
+  useEffect(() => {
+    if (prefersReducedMotion) setMotionPaused(true);
+  }, [prefersReducedMotion]);
+
   return (
-    <div className="relative w-full overflow-hidden">
-      <AuroraBackground />
-      
-      <div className="relative z-10">
-        <Navbar />
-        <HeroSection />
-        <StorySection />
-        <PortfolioSection />
-        <CreatorsSection />
-        <PricingSection />
-        <GenerativeSection />
-        <AddOnsSection />
-        <FooterSection />
-      </div>
-    </div>
+    <MotionConfig reducedMotion="user">
+      <MotionPauseContext.Provider value={{ paused: motionPaused, toggle: () => setMotionPaused((p) => !p) }}>
+        <div className={`relative w-full overflow-hidden ${motionPaused ? 'motion-paused' : ''}`}>
+          <AuroraBackground />
+
+          <div className="relative z-10">
+            <Navbar />
+            <HeroSection />
+            <StorySection />
+            <PortfolioSection />
+            <CreatorsSection />
+            <PricingSection />
+            <GenerativeSection />
+            <AddOnsSection />
+            <FooterSection />
+          </div>
+        </div>
+      </MotionPauseContext.Provider>
+    </MotionConfig>
   );
 }
 
+const navLinks = [
+  { href: '#story', label: 'Our Story' },
+  { href: '#portfolio', label: 'Portfolio' },
+  { href: '#creators', label: 'Creators' },
+  { href: '#services', label: 'Services' },
+  { href: '#generative', label: 'AI Studio' },
+];
+
 function Navbar() {
   const [scrolled, setScrolled] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     const handleScroll = () => {
@@ -100,38 +229,88 @@ function Navbar() {
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
 
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setMenuOpen(false);
+        menuButtonRef.current?.focus();
+      }
+    };
+    const onResize = () => {
+      if (window.innerWidth >= 768) setMenuOpen(false);
+    };
+    document.addEventListener('keydown', onKeyDown);
+    window.addEventListener('resize', onResize);
+    return () => {
+      document.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('resize', onResize);
+    };
+  }, [menuOpen]);
+
   return (
-    <nav className={`fixed top-0 w-full z-50 transition-all duration-300 ${scrolled ? 'glass-panel py-4' : 'bg-transparent py-6'}`}>
+    <nav aria-label="Main" className={`fixed top-0 w-full z-50 transition-all duration-300 ${scrolled || menuOpen ? 'glass-panel py-4' : 'bg-transparent py-6'}`}>
       <div className="max-w-7xl mx-auto px-6 md:px-12 flex justify-between items-center">
         <div className="font-display font-bold text-2xl tracking-tight text-white italic">
           YMCA<span className="text-[#D4AF37] not-italic">.</span>
         </div>
         <div className="hidden md:flex space-x-6 lg:space-x-8 text-sm tracking-widest text-[#C0C0C0] font-medium font-display">
-          <a href="#story" className="hover:text-white transition-colors relative group">
-            Our Story
-            <span className="absolute -bottom-2 left-0 w-full h-[2px] bg-[#D4AF37] scale-x-0 group-hover:scale-x-100 origin-left transition-transform duration-300"></span>
-          </a>
-          <a href="#portfolio" className="hover:text-white transition-colors relative group">
-            Portfolio
-            <span className="absolute -bottom-2 left-0 w-full h-[2px] bg-[#D4AF37] scale-x-0 group-hover:scale-x-100 origin-left transition-transform duration-300"></span>
-          </a>
-          <a href="#creators" className="hover:text-white transition-colors relative group">
-            Creators
-            <span className="absolute -bottom-2 left-0 w-full h-[2px] bg-[#D4AF37] scale-x-0 group-hover:scale-x-100 origin-left transition-transform duration-300"></span>
-          </a>
-          <a href="#services" className="hover:text-white transition-colors relative group">
-            Services
-            <span className="absolute -bottom-2 left-0 w-full h-[2px] bg-[#D4AF37] scale-x-0 group-hover:scale-x-100 origin-left transition-transform duration-300"></span>
-          </a>
-          <a href="#generative" className="hover:text-white transition-colors relative group">
-            AI Studio
-            <span className="absolute -bottom-2 left-0 w-full h-[2px] bg-[#D4AF37] scale-x-0 group-hover:scale-x-100 origin-left transition-transform duration-300"></span>
-          </a>
+          {navLinks.map((link) => (
+            <a key={link.href} href={link.href} className="hover:text-white transition-colors relative group">
+              {link.label}
+              <span className="absolute -bottom-2 left-0 w-full h-[2px] bg-[#D4AF37] scale-x-0 group-hover:scale-x-100 origin-left transition-transform duration-300"></span>
+            </a>
+          ))}
         </div>
         <a href="#contact" className="hidden md:inline-flex items-center justify-center px-6 py-2 border border-[#D4AF37] text-[#D4AF37] hover:bg-[#D4AF37] hover:text-[#050A14] transition-all duration-300 uppercase tracking-wider text-xs font-bold rounded-full">
           Get Quote
         </a>
+
+        <div className="flex md:hidden items-center gap-3">
+          <a href="#contact" onClick={() => setMenuOpen(false)} className="inline-flex items-center justify-center h-11 px-5 border border-[#D4AF37] text-[#D4AF37] hover:bg-[#D4AF37] hover:text-[#050A14] transition-all duration-300 uppercase tracking-wider text-xs font-bold rounded-full">
+            Get Quote
+          </a>
+          <button
+            ref={menuButtonRef}
+            type="button"
+            onClick={() => setMenuOpen((open) => !open)}
+            aria-expanded={menuOpen}
+            aria-controls="mobile-menu"
+            aria-label="Menu"
+            className="w-11 h-11 flex items-center justify-center rounded-full border border-white/20 text-white hover:border-[#D4AF37] hover:text-[#D4AF37] transition-colors"
+          >
+            {menuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+          </button>
+        </div>
       </div>
+
+      <AnimatePresence>
+        {menuOpen && (
+          <motion.div
+            id="mobile-menu"
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8, transition: { duration: 0.15 } }}
+            transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+            className="md:hidden px-6 pt-4 pb-2"
+          >
+            <ul className="border-t border-white/10">
+              {navLinks.map((link) => (
+                <li key={link.href}>
+                  <a
+                    href={link.href}
+                    onClick={() => setMenuOpen(false)}
+                    className="flex items-center justify-between min-h-[56px] border-b border-white/10 font-display text-2xl font-semibold tracking-tight text-white hover:text-[#D4AF37] transition-colors"
+                  >
+                    {link.label}
+                    <ChevronRight className="w-5 h-5 text-[#D4AF37]" aria-hidden="true" />
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </nav>
   );
 }
@@ -139,17 +318,37 @@ function Navbar() {
 function HeroSection() {
   const { scrollY } = useScroll();
   const y = useTransform(scrollY, [0, 1000], [0, 400]);
+  const prefersReducedMotion = useReducedMotion();
+  const { paused, toggle } = useMotionPause();
+  const playerRef = useRef<HTMLIFrameElement>(null);
+
+  // Vimeo's postMessage API: the background player accepts play/pause commands.
+  const commandPlayer = (method: 'play' | 'pause') =>
+    playerRef.current?.contentWindow?.postMessage(JSON.stringify({ method }), 'https://player.vimeo.com');
+
+  useEffect(() => {
+    commandPlayer(paused ? 'pause' : 'play');
+  }, [paused]);
 
   return (
     <section className="relative min-h-[75vh] flex items-end justify-start pb-20 pt-32 px-6 md:px-12 lg:px-24 overflow-hidden">
       {/* Background Video with Parallax */}
-      <motion.div 
+      <motion.div
         className="absolute inset-0 z-0 h-[120%] -top-[10%] overflow-hidden"
-        style={{ y }}
+        style={{ y: prefersReducedMotion ? 0 : y }}
       >
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[100vw] h-[56.25vw] min-h-[100vh] min-w-[177.77vh] pointer-events-none">
           <iframe
+            ref={playerRef}
             src="https://player.vimeo.com/video/1178560225?background=1&autoplay=1&loop=1&byline=0&title=0&muted=1"
+            title="YMCA showreel (background video)"
+            aria-hidden="true"
+            tabIndex={-1}
+            onLoad={() => {
+              if (!paused) return;
+              commandPlayer('pause');
+              setTimeout(() => commandPlayer('pause'), 1000);
+            }}
             className="absolute top-0 left-0 w-full h-full"
             frameBorder="0"
             allow="autoplay; fullscreen; picture-in-picture"
@@ -161,6 +360,21 @@ function HeroSection() {
         <div className="absolute inset-0 opacity-[0.03] pointer-events-none" 
              style={{ backgroundImage: 'radial-gradient(#fff 1px, transparent 1px)', backgroundSize: '40px 40px' }} />
       </motion.div>
+
+      {/* Scrims keep the navigation, headline and copy legible over bright footage */}
+      <div aria-hidden="true" className="absolute inset-x-0 top-0 h-40 bg-gradient-to-b from-[#030508]/75 to-transparent pointer-events-none" />
+      <div aria-hidden="true" className="absolute inset-x-0 bottom-0 h-3/4 bg-gradient-to-t from-[#030508] via-[#030508]/80 to-transparent pointer-events-none" />
+
+      <button
+        type="button"
+        onClick={toggle}
+        aria-pressed={paused}
+        aria-label="Pause background motion"
+        title={paused ? 'Play background motion' : 'Pause background motion'}
+        className="absolute bottom-6 right-6 md:right-12 z-20 w-11 h-11 rounded-full flex items-center justify-center bg-[#030508]/50 backdrop-blur-md border border-white/15 text-white/80 hover:text-[#D4AF37] hover:border-[#D4AF37] transition-colors"
+      >
+        {paused ? <Play className="w-4 h-4 ml-0.5" /> : <Pause className="w-4 h-4" />}
+      </button>
 
       <div className="w-full max-w-7xl mx-auto text-left relative z-10">
         <motion.div
@@ -175,7 +389,7 @@ function HeroSection() {
                 initial={{ opacity: 0, x: -20 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ duration: 1, delay: 0.4 }}
-                className="block font-medium text-white/50 text-xl md:text-2xl mb-2"
+                className="block font-medium text-white/75 text-xl md:text-2xl mb-2"
               >
                 The Art of
               </motion.span>
@@ -204,7 +418,7 @@ function HeroSection() {
             transition={{ duration: 1, delay: 1 }}
             className="md:max-w-md w-full md:pb-2"
           >
-            <p className="text-sm md:text-base text-white/60 font-light leading-relaxed">
+            <p className="text-sm md:text-base text-white/85 font-light leading-relaxed">
               Transforming luxury vessels into high-conversion digital assets. 
               Specializing in <span className="text-white font-medium">measurable performance</span> for owners, brokers, and shipyards.
             </p>
@@ -215,14 +429,31 @@ function HeroSection() {
   );
 }
 
-function PortfolioSection() {
-  const [selectedProject, setSelectedProject] = useState<typeof projects[0] | null>(null);
-  const [isVideoPlaying, setIsVideoPlaying] = useState(false);
-  const [expandingProject, setExpandingProject] = useState<string | null>(null);
+type Project = {
+  name: string;
+  specs: string;
+  image: string;
+  /** Project film; the play controls only appear when one is set. */
+  videoUrl?: string;
+  gallery: string[];
+  description: string;
+  client: string;
+  duration: string;
+  servicesProvided: string[];
+};
 
-  const handleOpenModal = (project: typeof projects[0], playVideo = false) => {
+function PortfolioSection() {
+  const [selectedProject, setSelectedProject] = useState<Project | null>(null);
+  const [isVideoPlaying, setIsVideoPlaying] = useState(false);
+  const [videoFailed, setVideoFailed] = useState(false);
+  const [expandingProject, setExpandingProject] = useState<string | null>(null);
+  const prefersReducedMotion = useReducedMotion();
+  const titleId = useId();
+
+  const handleOpenModal = (project: Project, playVideo = false) => {
     setSelectedProject(project);
     setIsVideoPlaying(playVideo);
+    setVideoFailed(false);
   };
 
   const handleCloseModal = () => {
@@ -230,12 +461,14 @@ function PortfolioSection() {
     setIsVideoPlaying(false);
   };
 
-  const handleProjectClick = (project: typeof projects[0], playVideo = false) => {
-    if (playVideo) {
-      handleOpenModal(project, true);
+  const dialogRef = useDialog(!!selectedProject, handleCloseModal);
+
+  const handleProjectClick = (project: Project, playVideo = false) => {
+    if (playVideo || prefersReducedMotion) {
+      handleOpenModal(project, playVideo);
       return;
     }
-    
+
     if (expandingProject !== project.name) {
       setExpandingProject(project.name);
       setTimeout(() => {
@@ -245,52 +478,49 @@ function PortfolioSection() {
     }
   };
 
-  const projects = [
+  const projects: Project[] = [
     {
-      name: "M/Y AURELIA | 85M",
+      name: "M/Y ASTRALIS | 85M",
       specs: "8K RED RAW • FPV Fly-through • Dolby Atmos",
       image: "https://images.unsplash.com/photo-1605281317010-fe5ffe798166?q=80&w=2000&auto=format&fit=crop",
-      videoUrl: "https://storage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
       gallery: [
         "https://images.unsplash.com/photo-1569263979104-865ab7cd8d13?q=80&w=1000&auto=format&fit=crop",
         "https://images.unsplash.com/photo-1544551763-46a013bb70d5?q=80&w=1000&auto=format&fit=crop",
         "https://images.unsplash.com/photo-1564466809058-bf4114d55352?q=80&w=1000&auto=format&fit=crop",
         "https://images.unsplash.com/photo-1599839619722-39751411ea63?q=80&w=1000&auto=format&fit=crop"
       ],
-      description: "A comprehensive 7-day charter campaign across the Mediterranean. We captured the essence of luxury living aboard the 85m Aurelia, delivering a hero film, 15 social shorts, and a full photography suite.",
-      client: "Burgess Yachts",
+      description: "A comprehensive 7-day charter campaign across the Mediterranean. We captured the essence of luxury living aboard the 85m Astralis, delivering a hero film, 15 social shorts, and a full photography suite.",
+      client: "Leading charter brokerage",
       duration: "7 Days",
       servicesProvided: ["Hero Film Production", "Social Media Shorts", "Photography Suite", "Drone Cinematography"]
     },
     {
-      name: "S/Y BLACK PEARL | 106M",
+      name: "S/Y NORTHERN VEIL | 62M",
       specs: "Cinematic Documentary • 10-bit HDR • Drone Fleet",
       image: "https://images.unsplash.com/photo-1540946485063-a40da27545f8?q=80&w=2000&auto=format&fit=crop",
-      videoUrl: "https://storage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4",
       gallery: [
         "https://images.unsplash.com/photo-1520255870062-bd79d3865de7?q=80&w=1000&auto=format&fit=crop",
-        "https://images.unsplash.com/photo-1518306641595-555fb7261f4d?q=80&w=1000&auto=format&fit=crop",
+        "https://images.unsplash.com/photo-1546214755-c5d22447b43b?q=80&w=1000&auto=format&fit=crop",
         "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?q=80&w=1000&auto=format&fit=crop",
         "https://images.unsplash.com/photo-1534447677768-be436bb09401?q=80&w=1000&auto=format&fit=crop"
       ],
-      description: "A cinematic documentary exploring the engineering marvel of the 106m Black Pearl. Utilizing our drone fleet, we captured breathtaking aerials and intimate onboard moments in 10-bit HDR.",
-      client: "Oceanco",
+      description: "A cinematic documentary exploring the engineering of a 62m performance sailing yacht. Utilizing our drone fleet, we captured breathtaking aerials and intimate onboard moments in 10-bit HDR.",
+      client: "Custom sailing yacht builder",
       duration: "14 Days",
       servicesProvided: ["Cinematic Documentary", "Aerial Drone Fleet", "10-bit HDR Grading", "Sound Design"]
     },
     {
-      name: "M/Y SERENITY | 72M",
+      name: "M/Y SERENA BLUE | 72M",
       specs: "Charter Campaign • Social Reels • ProRes 422 HQ",
       image: "https://images.unsplash.com/photo-1567899378494-47b22a2ae96a?q=80&w=2000&auto=format&fit=crop",
-      videoUrl: "https://storage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4",
       gallery: [
         "https://images.unsplash.com/photo-1530053969600-caed2596d242?q=80&w=1000&auto=format&fit=crop",
         "https://images.unsplash.com/photo-1510006851064-e6056cd0e3a8?q=80&w=1000&auto=format&fit=crop",
         "https://images.unsplash.com/photo-1505228395891-9a51e7e86bf6?q=80&w=1000&auto=format&fit=crop",
-        "https://images.unsplash.com/photo-1473862215182-a4f200c9598c?q=80&w=1000&auto=format&fit=crop"
+        "https://images.unsplash.com/photo-1535024966840-e7424dc2635b?q=80&w=1000&auto=format&fit=crop"
       ],
       description: "High-energy social media campaign designed to boost charter bookings. We delivered a suite of vertical reels and a web-optimized hero video, all shot in stunning ProRes 422 HQ.",
-      client: "Camper & Nicholsons",
+      client: "Mediterranean charter fleet",
       duration: "5 Days",
       servicesProvided: ["Vertical Reels Creation", "Web-Optimized Hero Video", "ProRes 422 HQ Delivery", "Social Media Strategy"]
     },
@@ -298,7 +528,6 @@ function PortfolioSection() {
       name: "PROJECT X | 110M",
       specs: "Shipyard Confidential • VR Tour • 16-bit Color",
       image: "https://images.unsplash.com/photo-1534008897995-27a23e859048?q=80&w=2000&auto=format&fit=crop",
-      videoUrl: "https://storage.googleapis.com/gtv-videos-bucket/sample/ForBiggerMeltdowns.mp4",
       gallery: [
         "https://images.unsplash.com/photo-1501504905252-473c47e087f8?q=80&w=1000&auto=format&fit=crop",
         "https://images.unsplash.com/photo-1522748906645-95d8adfd52c7?q=80&w=1000&auto=format&fit=crop",
@@ -306,39 +535,37 @@ function PortfolioSection() {
         "https://images.unsplash.com/photo-1515238152791-8216bfdf89a7?q=80&w=1000&auto=format&fit=crop"
       ],
       description: "Confidential shipyard documentation and immersive VR tour creation. We utilized 16-bit color depth to accurately represent the bespoke interior finishes of this 110m masterpiece.",
-      client: "Lürssen Yachts",
+      client: "Northern European shipyard",
       duration: "30 Days",
       servicesProvided: ["Confidential Documentation", "Immersive VR Tour", "16-bit Color Grading", "Interior Photography"]
     },
     {
-      name: "M/Y ECLIPSE | 162M",
+      name: "M/Y ONYX TIDE | 128M",
       specs: "Multi-cam Production • 4K HDR • Night Cinematography",
       image: "https://images.unsplash.com/photo-1559136555-9303baea8ebd?q=80&w=2000&auto=format&fit=crop",
-      videoUrl: "https://storage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
       gallery: [
         "https://images.unsplash.com/photo-1567899378494-47b22a2ae96a?q=80&w=1000&auto=format&fit=crop",
         "https://images.unsplash.com/photo-1540946485063-a40da27545f8?q=80&w=1000&auto=format&fit=crop",
         "https://images.unsplash.com/photo-1605281317010-fe5ffe798166?q=80&w=1000&auto=format&fit=crop",
         "https://images.unsplash.com/photo-1569263979104-865ab7cd8d13?q=80&w=1000&auto=format&fit=crop"
       ],
-      description: "A high-stakes multi-camera production capturing the grandeur of one of the world's largest private yachts. We specialized in night cinematography to showcase the vessel's iconic lighting design.",
+      description: "A high-stakes multi-camera production capturing the scale of a 128m explorer yacht. We specialized in night cinematography to showcase the vessel's iconic lighting design.",
       client: "Private Owner",
       duration: "10 Days",
       servicesProvided: ["Multi-cam Production", "Night Cinematography", "4K HDR Grading", "Lighting Documentation"]
     },
     {
-      name: "S/Y MALTESE FALCON | 88M",
+      name: "S/Y WINDWARD SPIRIT | 74M",
       specs: "Regatta Coverage • High-speed FPV • 360° Immersive",
       image: "https://images.unsplash.com/photo-1517315003714-a071486bd9ea?q=80&w=2000&auto=format&fit=crop",
-      videoUrl: "https://storage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4",
       gallery: [
         "https://images.unsplash.com/photo-1534447677768-be436bb09401?q=80&w=1000&auto=format&fit=crop",
         "https://images.unsplash.com/photo-1520255870062-bd79d3865de7?q=80&w=1000&auto=format&fit=crop",
-        "https://images.unsplash.com/photo-1518306641595-555fb7261f4d?q=80&w=1000&auto=format&fit=crop",
+        "https://images.unsplash.com/photo-1786355268513-1b73487be658?q=80&w=1000&auto=format&fit=crop",
         "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?q=80&w=1000&auto=format&fit=crop"
       ],
-      description: "Dynamic regatta coverage utilizing high-speed FPV drones to capture the raw power of the Maltese Falcon under full sail. We also delivered a 360° immersive experience for the yacht's virtual showroom.",
-      client: "Perini Navi",
+      description: "Dynamic regatta coverage utilizing high-speed FPV drones to capture the raw power of a 74m sailing yacht under full sail. We also delivered a 360° immersive experience for the yacht's virtual showroom.",
+      client: "Italian sailing yacht yard",
       duration: "4 Days",
       servicesProvided: ["Regatta Cinematography", "FPV Drone Racing", "360° Video Production", "Live Stream Support"]
     }
@@ -389,38 +616,41 @@ function PortfolioSection() {
                 variants={fadeUpItem}
                 whileHover={{ y: -5 }}
                 className="group relative overflow-hidden rounded-2xl cursor-pointer aspect-[4/3] shadow-[0_4px_20px_rgba(0,0,0,0.5)] hover:shadow-[0_20px_40px_rgba(212,175,55,0.15)] transition-all duration-700"
-                onClick={() => handleProjectClick(project)}
               >
-                <div className="absolute inset-0 bg-[#030508]/60 group-hover:bg-[#030508]/30 transition-colors duration-700 z-10" />
-                <img 
-                  src={project.image} 
+                <div className="absolute inset-0 bg-[#030508]/60 group-hover:bg-[#030508]/30 group-focus-within:bg-[#030508]/30 transition-colors duration-700 z-10" />
+                <img
+                  src={project.image}
                   alt={project.name}
                   loading="lazy"
                   className={`absolute inset-0 w-full h-full object-cover transform transition-transform duration-[2s] ease-out ${isExpanding ? 'scale-110 blur-sm' : 'scale-105 group-hover:scale-110'}`}
                   referrerPolicy="no-referrer"
                 />
-                
-                {/* Sophisticated Overlay */}
-                <div className="absolute inset-0 z-20 p-6 flex flex-col justify-between opacity-0 group-hover:opacity-100 transition-all duration-700 bg-gradient-to-t from-[#030508] via-[#030508]/20 to-transparent">
-                  <div className="flex justify-between items-start translate-y-4 group-hover:translate-y-0 transition-transform duration-700">
+
+                {/* Sophisticated Overlay (visual repeat of the default info below) */}
+                <div aria-hidden="true" className="absolute inset-0 z-20 p-6 flex flex-col justify-between opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-all duration-700 bg-gradient-to-t from-[#030508] via-[#030508]/20 to-transparent">
+                  <div className="flex justify-between items-start translate-y-4 group-hover:translate-y-0 group-focus-within:translate-y-0 transition-transform duration-700">
                     <span className="text-[9px] uppercase tracking-[0.3em] text-[#D4AF37] font-bold bg-black/40 backdrop-blur-md px-3 py-1.5 rounded-full border border-white/10">{project.client}</span>
-                    <div className="w-10 h-10 rounded-full bg-white/10 backdrop-blur-md flex items-center justify-center hover:bg-[#D4AF37] hover:scale-110 transition-all duration-300">
-                      <Play className="w-4 h-4 text-white ml-0.5" />
-                    </div>
+                    {project.videoUrl && (
+                      <div className="w-10 h-10 rounded-full bg-white/10 backdrop-blur-md flex items-center justify-center hover:bg-[#D4AF37] hover:scale-110 transition-all duration-300">
+                        <Play className="w-4 h-4 text-white ml-0.5" />
+                      </div>
+                    )}
                   </div>
 
-                  <div className="translate-y-6 group-hover:translate-y-0 transition-transform duration-700 delay-100">
+                  <div className="translate-y-6 group-hover:translate-y-0 group-focus-within:translate-y-0 transition-transform duration-700 delay-100">
                     <p className="text-[#D4AF37] text-[9px] font-bold tracking-[0.2em] uppercase mb-2">{project.specs}</p>
-                    <h3 className="font-display text-xl md:text-2xl font-bold mb-3 tracking-tight text-white">{project.name}</h3>
-                    <div className="h-[1px] w-8 bg-[#D4AF37] group-hover:w-full transition-all duration-1000" />
+                    <p className="font-display text-xl md:text-2xl font-bold mb-3 tracking-tight text-white">{project.name}</p>
+                    <div className="h-[1px] w-8 bg-[#D4AF37] group-hover:w-full group-focus-within:w-full transition-all duration-1000" />
                   </div>
                 </div>
 
                 {/* Default View Info */}
-                <div className="absolute bottom-6 left-6 z-20 group-hover:-translate-y-4 group-hover:opacity-0 transition-all duration-500">
+                <div className="absolute bottom-6 left-6 z-20 group-hover:-translate-y-4 group-hover:opacity-0 group-focus-within:-translate-y-4 group-focus-within:opacity-0 transition-all duration-500">
                   <h3 className="font-display text-lg font-bold text-white tracking-tight">{project.name}</h3>
                   <p className="text-[#D4AF37] text-[9px] font-bold tracking-[0.2em] uppercase mt-1 opacity-80">{project.client}</p>
                 </div>
+
+                <CardButton label={`View project: ${project.name}`} onClick={() => handleProjectClick(project)} />
               </motion.div>
             );
           })}
@@ -458,40 +688,50 @@ function PortfolioSection() {
               transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
               className="relative w-full max-w-6xl bg-[#0a0a16] border border-white/10 rounded-2xl overflow-hidden shadow-2xl flex flex-col md:flex-row max-h-[90vh]"
               onClick={(e) => e.stopPropagation()}
+              ref={dialogRef}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby={titleId}
+              tabIndex={-1}
             >
-              <button
-                onClick={handleCloseModal}
-                className="absolute top-4 right-4 z-30 p-2 bg-black/50 hover:bg-[#D4AF37] text-white hover:text-black rounded-full transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
-              
+              <DialogCloseButton onClick={handleCloseModal} />
+
               <div className="w-full md:w-3/5 h-[50vh] md:h-full overflow-y-auto custom-scrollbar bg-black flex flex-col">
                 <div className="relative w-full aspect-video shrink-0 group">
-                  {isVideoPlaying ? (
-                    <video 
-                      src={selectedProject.videoUrl} 
-                      autoPlay 
-                      controls 
+                  {isVideoPlaying && selectedProject.videoUrl && !videoFailed ? (
+                    <video
+                      src={selectedProject.videoUrl}
+                      autoPlay
+                      controls
+                      onError={() => setVideoFailed(true)}
                       className="w-full h-full object-contain bg-black"
                     />
                   ) : (
                     <>
-                      <img 
-                        src={selectedProject.image} 
+                      <img
+                        src={selectedProject.image}
                         alt={selectedProject.name}
                         loading="lazy"
                         className="w-full h-full object-cover transform scale-105 group-hover:scale-100 transition-transform duration-[2s] ease-out"
                         referrerPolicy="no-referrer"
                       />
-                      <div 
-                        className="absolute inset-0 flex items-center justify-center bg-black/20 cursor-pointer"
-                        onClick={() => setIsVideoPlaying(true)}
-                      >
-                        <div className="w-20 h-20 rounded-full bg-white/10 backdrop-blur-md flex items-center justify-center group-hover:scale-110 group-hover:bg-[#D4AF37] transition-all duration-300">
-                          <Play className="w-8 h-8 text-white group-hover:text-black ml-1" />
-                        </div>
-                      </div>
+                      {selectedProject.videoUrl && !videoFailed && (
+                        <button
+                          type="button"
+                          aria-label={`Play film: ${selectedProject.name}`}
+                          className="absolute inset-0 flex items-center justify-center bg-black/20 cursor-pointer"
+                          onClick={() => setIsVideoPlaying(true)}
+                        >
+                          <span className="w-20 h-20 rounded-full bg-white/10 backdrop-blur-md flex items-center justify-center group-hover:scale-110 group-hover:bg-[#D4AF37] transition-all duration-300">
+                            <Play className="w-8 h-8 text-white group-hover:text-black ml-1" />
+                          </span>
+                        </button>
+                      )}
+                      {videoFailed && (
+                        <p role="status" className="absolute inset-x-4 bottom-4 rounded-xl bg-[#030508]/80 backdrop-blur-md px-4 py-3 text-sm text-white">
+                          This film can't be played right now. The stills below show the project.
+                        </p>
+                      )}
                     </>
                   )}
                 </div>
@@ -522,7 +762,7 @@ function PortfolioSection() {
                 className="w-full md:w-2/5 p-8 md:p-12 flex flex-col justify-center overflow-y-auto"
               >
                 <p className="text-[#D4AF37] text-xs font-bold tracking-widest uppercase mb-3">{selectedProject.specs}</p>
-                <h3 className="font-display text-4xl md:text-5xl font-bold mb-6 text-white">{selectedProject.name}</h3>
+                <h3 id={titleId} className="font-display text-4xl md:text-5xl font-bold mb-6 text-white">{selectedProject.name}</h3>
                 <p className="text-[#C0C0C0] font-light leading-relaxed mb-8 text-sm md:text-base">
                   {selectedProject.description}
                 </p>
@@ -550,9 +790,13 @@ function PortfolioSection() {
                   </ul>
                 </div>
                 
-                <button className="mt-10 w-full py-4 border border-white/20 text-white hover:border-[#D4AF37] hover:text-[#D4AF37] transition-all duration-300 uppercase tracking-widest text-xs font-bold rounded-full">
+                <a
+                  href="#contact"
+                  onClick={handleCloseModal}
+                  className="mt-10 w-full py-4 text-center border border-white/20 text-white hover:border-[#D4AF37] hover:text-[#D4AF37] transition-all duration-300 uppercase tracking-widest text-xs font-bold rounded-full"
+                >
                   Request Similar Project
-                </button>
+                </a>
               </motion.div>
             </motion.div>
           </motion.div>
@@ -861,7 +1105,7 @@ function PricingSection() {
                   ))}
                 </ul>
 
-                <button className={`w-full py-4 uppercase tracking-widest text-xs font-bold rounded-full transition-all duration-500 mt-auto ${
+                <button type="button" aria-pressed={selectedTier === tier.name} aria-label={`Select tier: ${tier.name}`} className={`w-full py-4 uppercase tracking-widest text-xs font-bold rounded-full transition-all duration-500 mt-auto ${
                   selectedTier === tier.name
                     ? 'bg-white text-[#030508] shadow-[0_0_20px_rgba(255,255,255,0.3)]'
                     : tier.popular 
@@ -940,6 +1184,13 @@ function PricingSection() {
 function GenerativeSection() {
   const [selectedService, setSelectedService] = useState<any | null>(null);
   const [sceneIndex, setSceneIndex] = useState(0);
+  const { paused } = useMotionPause();
+  const prefersReducedMotion = useReducedMotion();
+  const consoleRef = useRef<HTMLDivElement>(null);
+  const consoleInView = useInView(consoleRef);
+  const titleId = useId();
+  const closeService = () => setSelectedService(null);
+  const dialogRef = useDialog(!!selectedService, closeService);
 
   const avatarScenes = [
     { prompt: "Costa Smeralda · golden hour, low drone orbit", tint: "from-[#D4AF37]/40 via-[#D4AF37]/5 to-[#030508]/80" },
@@ -948,12 +1199,14 @@ function GenerativeSection() {
     { prompt: "Monaco · Grand Prix week, night illumination", tint: "from-[#7C3AED]/30 via-[#D4AF37]/10 to-[#030508]/85" }
   ];
 
+  // Cycle scenes only while the console is on screen and motion isn't paused
   useEffect(() => {
+    if (paused || !consoleInView) return;
     const interval = setInterval(() => {
       setSceneIndex((prev) => (prev + 1) % avatarScenes.length);
     }, 3200);
     return () => clearInterval(interval);
-  }, []);
+  }, [paused, consoleInView]);
 
   const avatarDeliverables = [
     "Reference capture: 300+ calibrated stills, drone orbit & interior pass",
@@ -1111,7 +1364,7 @@ function GenerativeSection() {
               </div>
 
               {/* Avatar console visual */}
-              <div className="relative min-h-[420px] lg:min-h-[560px] rounded-2xl overflow-hidden border border-white/10">
+              <div ref={consoleRef} className="relative min-h-[420px] lg:min-h-[560px] rounded-2xl overflow-hidden border border-white/10">
                 <img
                   src="https://images.unsplash.com/photo-1605281317010-fe5ffe798166?q=80&w=1600&auto=format&fit=crop"
                   alt="Yacht used as avatar reference"
@@ -1132,11 +1385,13 @@ function GenerativeSection() {
                   className="absolute inset-0 opacity-40 pointer-events-none"
                   style={{ backgroundImage: 'linear-gradient(rgba(212,175,55,0.12) 1px, transparent 1px), linear-gradient(90deg, rgba(212,175,55,0.12) 1px, transparent 1px)', backgroundSize: '48px 48px' }}
                 />
-                <motion.div
-                  className="absolute left-0 right-0 h-px bg-[#D4AF37] shadow-[0_0_20px_4px_rgba(212,175,55,0.5)] pointer-events-none"
-                  animate={{ top: ['8%', '92%'] }}
-                  transition={{ duration: 4, repeat: Infinity, repeatType: 'reverse', ease: 'easeInOut' }}
-                />
+                {!paused && !prefersReducedMotion && (
+                  <motion.div
+                    className="absolute left-0 right-0 h-px bg-[#D4AF37] shadow-[0_0_20px_4px_rgba(212,175,55,0.5)] pointer-events-none"
+                    animate={{ top: ['8%', '92%'] }}
+                    transition={{ duration: 4, repeat: Infinity, repeatType: 'reverse', ease: 'easeInOut' }}
+                  />
+                )}
 
                 {/* Corner brackets */}
                 <div className="absolute top-5 left-5 w-6 h-6 border-t-2 border-l-2 border-[#D4AF37]/70" />
@@ -1145,7 +1400,7 @@ function GenerativeSection() {
                 <div className="absolute bottom-5 right-5 w-6 h-6 border-b-2 border-r-2 border-[#D4AF37]/70" />
 
                 <div className="absolute top-8 left-8 flex items-center gap-2 px-3 py-1.5 bg-[#030508]/60 backdrop-blur-md border border-white/10 rounded-full">
-                  <span className="w-1.5 h-1.5 rounded-full bg-[#D4AF37] animate-pulse" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#D4AF37] motion-safe:animate-pulse" />
                   <span className="text-[10px] uppercase tracking-[0.25em] text-white font-bold">Yacht Avatar</span>
                 </div>
 
@@ -1187,20 +1442,18 @@ function GenerativeSection() {
               key={index}
               variants={fadeUpItem}
             >
-              <div
-                onClick={() => setSelectedService(service)}
-                className="glass-panel p-8 rounded-2xl flex flex-col items-center text-center group glass-panel-hover cursor-pointer h-full"
-              >
+              <div className="relative glass-panel p-8 rounded-2xl flex flex-col items-center text-center group glass-panel-hover cursor-pointer h-full">
                 <div className="mb-6 text-[#C0C0C0] group-hover:text-[#D4AF37] transition-colors duration-500 transform group-hover:scale-110">
                   {service.icon}
                 </div>
                 <h3 className="font-display text-2xl font-semibold mb-2 group-hover:text-[#D4AF37] transition-colors duration-500">{service.title}</h3>
                 <p className="text-sm text-[#C0C0C0] font-light mb-4">{service.description}</p>
                 <p className="text-sm text-[#D4AF37] font-light">{service.price}</p>
-                <div className="mt-auto pt-4 opacity-30 group-hover:opacity-100 transition-all duration-500 flex items-center text-[#D4AF37] text-[10px] uppercase tracking-[0.2em] font-bold">
+                <div aria-hidden="true" className="mt-auto pt-4 opacity-30 group-hover:opacity-100 group-focus-within:opacity-100 transition-all duration-500 flex items-center text-[#D4AF37] text-[10px] uppercase tracking-[0.2em] font-bold">
                   <span>Details</span>
                   <ChevronRight className="w-3 h-3 ml-1 transform group-hover:translate-x-1 transition-transform duration-300" />
                 </div>
+                <CardButton label={`${service.title}: details`} onClick={() => setSelectedService(service)} />
               </div>
             </motion.div>
           ))}
@@ -1243,19 +1496,19 @@ function GenerativeSection() {
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
               className="relative w-full max-w-2xl bg-[#0a0a16] border border-white/10 rounded-2xl overflow-hidden shadow-2xl flex flex-col"
               onClick={(e) => e.stopPropagation()}
+              ref={dialogRef}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby={titleId}
+              tabIndex={-1}
             >
-              <button
-                onClick={() => setSelectedService(null)}
-                className="absolute top-4 right-4 z-30 p-2 bg-black/50 hover:bg-[#D4AF37] text-white hover:text-black rounded-full transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
+              <DialogCloseButton onClick={closeService} />
 
               <div className="p-8 md:p-12 overflow-y-auto custom-scrollbar max-h-[80vh]">
                 <div className="mb-6 text-[#D4AF37]">
                   {selectedService.icon}
                 </div>
-                <h3 className="font-display text-3xl font-bold mb-2 text-white">{selectedService.title}</h3>
+                <h3 id={titleId} className="font-display text-3xl font-bold mb-2 text-white">{selectedService.title}</h3>
                 <div className="text-xl font-light text-[#D4AF37] mb-6">{selectedService.price}</div>
                 <p className="text-[#C0C0C0] font-light leading-relaxed mb-8">
                   {selectedService.details}
@@ -1306,12 +1559,21 @@ function AddOnsSection() {
     "'Space Grotesk', sans-serif"
   ];
 
+  const { paused } = useMotionPause();
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const headingInView = useInView(headingRef);
+  const titleId = useId();
+  const closeAddon = () => setSelectedAddon(null);
+  const dialogRef = useDialog(!!selectedAddon, closeAddon);
+
+  // Font cycling runs only while the heading is visible and motion isn't paused
   useEffect(() => {
+    if (paused || !headingInView) return;
     const interval = setInterval(() => {
       setFontIndex((prev) => (prev + 1) % customFonts.length);
     }, 500);
     return () => clearInterval(interval);
-  }, []);
+  }, [paused, headingInView]);
 
   const addons = [
     {
@@ -1402,9 +1664,10 @@ function AddOnsSection() {
           viewport={{ once: true, margin: "-10%" }}
           className="text-center mb-20"
         >
-          <motion.h2 variants={fadeUpItem} className="font-display font-semibold tracking-tight text-4xl md:text-5xl mb-4 flex items-center justify-center gap-3">
+          <motion.h2 ref={headingRef} variants={fadeUpItem} className="font-display font-semibold tracking-tight text-4xl md:text-5xl mb-4 flex items-center justify-center gap-3">
             <span>The</span>
-            <span className="relative w-[320px] h-[50px] md:h-[60px] inline-block">
+            <span className="sr-only">customization</span>
+            <span aria-hidden="true" className="relative w-[320px] h-[50px] md:h-[60px] inline-block">
               {customFonts.map((font, index) => (
                 <span
                   key={index}
@@ -1432,19 +1695,17 @@ function AddOnsSection() {
               key={index}
               variants={fadeUpItem}
             >
-              <div 
-                onClick={() => setSelectedAddon(addon)}
-                className="glass-panel p-8 rounded-2xl flex flex-col items-center text-center group glass-panel-hover cursor-pointer h-full"
-              >
+              <div className="relative glass-panel p-8 rounded-2xl flex flex-col items-center text-center group glass-panel-hover cursor-pointer h-full">
                 <div className="mb-6 text-[#C0C0C0] group-hover:text-[#D4AF37] transition-colors duration-500 transform group-hover:scale-110">
                   {addon.icon}
                 </div>
                 <h3 className="font-display text-2xl font-semibold mb-2 group-hover:text-[#D4AF37] transition-colors duration-500">{addon.title}</h3>
                 <p className="text-sm text-[#C0C0C0] font-light mb-4">{addon.description}</p>
-                <div className="mt-auto pt-4 opacity-30 group-hover:opacity-100 transition-all duration-500 flex items-center text-[#D4AF37] text-[10px] uppercase tracking-[0.2em] font-bold">
+                <div aria-hidden="true" className="mt-auto pt-4 opacity-30 group-hover:opacity-100 group-focus-within:opacity-100 transition-all duration-500 flex items-center text-[#D4AF37] text-[10px] uppercase tracking-[0.2em] font-bold">
                   <span>Details</span>
                   <ChevronRight className="w-3 h-3 ml-1 transform group-hover:translate-x-1 transition-transform duration-300" />
                 </div>
+                <CardButton label={`${addon.title}: details`} onClick={() => setSelectedAddon(addon)} />
               </div>
             </motion.div>
           ))}
@@ -1467,19 +1728,19 @@ function AddOnsSection() {
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
               className="relative w-full max-w-2xl bg-[#0a0a16] border border-white/10 rounded-2xl overflow-hidden shadow-2xl flex flex-col"
               onClick={(e) => e.stopPropagation()}
+              ref={dialogRef}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby={titleId}
+              tabIndex={-1}
             >
-              <button
-                onClick={() => setSelectedAddon(null)}
-                className="absolute top-4 right-4 z-30 p-2 bg-black/50 hover:bg-[#D4AF37] text-white hover:text-black rounded-full transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
+              <DialogCloseButton onClick={closeAddon} />
 
               <div className="p-8 md:p-12 overflow-y-auto custom-scrollbar max-h-[80vh]">
                 <div className="mb-6 text-[#D4AF37]">
                   {selectedAddon.icon}
                 </div>
-                <h3 className="font-display text-3xl font-bold mb-4 text-white">{selectedAddon.title}</h3>
+                <h3 id={titleId} className="font-display text-3xl font-bold mb-4 text-white">{selectedAddon.title}</h3>
                 <p className="text-[#C0C0C0] font-light leading-relaxed mb-8">
                   {selectedAddon.details}
                 </p>
@@ -1513,31 +1774,92 @@ function AddOnsSection() {
 
 function FooterSection() {
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [isSubmitted, setIsSubmitted] = useState(false);
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
+  const [skillsError, setSkillsError] = useState(false);
+  const [quoteStatus, setQuoteStatus] = useState<FormStatus>('idle');
+  const [applicationStatus, setApplicationStatus] = useState<FormStatus>('idle');
+  const quoteSuccessRef = useRef<HTMLHeadingElement>(null);
+  const applicationSuccessRef = useRef<HTMLHeadingElement>(null);
+  const fieldId = useId();
+  const id = (name: string) => `${fieldId}-${name}`;
 
   const availableSkills = [
-    "Aerial", "FPV", "Post-Production", "Copywriting", 
+    "Aerial", "FPV", "Post-Production", "Copywriting",
     "Photography", "Videography", "Direction", "Color Grading", "Sound Design",
     "Generative AI"
   ];
 
   const toggleSkill = (skill: string) => {
-    setSelectedSkills(prev => 
-      prev.includes(skill) 
+    setSkillsError(false);
+    setSelectedSkills(prev =>
+      prev.includes(skill)
         ? prev.filter(s => s !== skill)
         : [...prev, skill]
     );
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsSubmitted(true);
-    setTimeout(() => {
-      setIsModalOpen(false);
-      setTimeout(() => setIsSubmitted(false), 500);
-    }, 3000);
+  const closeApplication = () => {
+    setIsModalOpen(false);
+    if (applicationStatus === 'sent') {
+      setApplicationStatus('idle');
+      setSelectedSkills([]);
+    }
   };
+
+  const dialogRef = useDialog(isModalOpen, closeApplication);
+
+  const handleQuoteSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const form = e.currentTarget;
+    const data = Object.fromEntries(new FormData(form)) as Record<string, string>;
+    setQuoteStatus('sending');
+    try {
+      // Bots fill the hidden "website" field; humans never see it
+      if (!data.website) {
+        await submitForm('quote-request', { yacht: data.yacht, projectType: data.projectType, email: data.email });
+      }
+      form.reset();
+      setQuoteStatus('sent');
+    } catch {
+      setQuoteStatus('error');
+    }
+  };
+
+  const handleApplicationSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (selectedSkills.length === 0) {
+      setSkillsError(true);
+      document.getElementById(id('skills'))?.querySelector('button')?.focus();
+      return;
+    }
+    const form = e.currentTarget;
+    const data = Object.fromEntries(new FormData(form)) as Record<string, string>;
+    setApplicationStatus('sending');
+    try {
+      if (!data.website) {
+        await submitForm('creator-application', {
+          name: data.name,
+          email: data.email,
+          skills: selectedSkills,
+          portfolioUrl: data.portfolioUrl,
+          equipment: data.equipment,
+          experience: data.experience,
+        });
+      }
+      setApplicationStatus('sent');
+    } catch {
+      setApplicationStatus('error');
+    }
+  };
+
+  // Move focus to the confirmation so screen readers announce it
+  useEffect(() => {
+    if (quoteStatus === 'sent') quoteSuccessRef.current?.focus();
+  }, [quoteStatus]);
+
+  useEffect(() => {
+    if (applicationStatus === 'sent') applicationSuccessRef.current?.focus();
+  }, [applicationStatus]);
 
   // Prevent scrolling when modal is open
   useEffect(() => {
@@ -1551,10 +1873,19 @@ function FooterSection() {
     };
   }, [isModalOpen]);
 
+  const honeypot = (
+    <div aria-hidden="true" className="absolute -left-[9999px] w-px h-px overflow-hidden">
+      <label>
+        Website
+        <input type="text" name="website" tabIndex={-1} autoComplete="off" />
+      </label>
+    </div>
+  );
+
   return (
     <footer id="contact" className="relative pt-32 pb-12 px-6 overflow-hidden">
       <div className="max-w-7xl mx-auto relative z-10">
-        <motion.div 
+        <motion.div
           className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-20"
           variants={staggerContainer}
           initial="hidden"
@@ -1562,54 +1893,102 @@ function FooterSection() {
           viewport={{ once: true, margin: "-10%" }}
         >
           {/* Ready to Elevate Your Fleet */}
-          <motion.div 
+          <motion.div
             variants={fadeUpItem}
             className="glass-panel rounded-2xl p-8 md:p-12 relative overflow-hidden"
           >
             <div className="absolute top-0 right-0 w-64 h-64 bg-[#D4AF37]/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 pointer-events-none"></div>
-            
-            <div className="text-center mb-10 relative z-10">
-              <h2 className="font-display font-semibold tracking-tight text-4xl mb-4 text-white">Ready to elevate your fleet?</h2>
-              <p className="text-[#C0C0C0] font-light">Request a custom quote for your vessel.</p>
-            </div>
 
-            <form className="space-y-6" onSubmit={(e) => e.preventDefault()}>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="space-y-2">
-                  <label className="text-xs font-bold uppercase tracking-widest text-[#C0C0C0] ml-1">Yacht Name / Length</label>
-                  <input 
-                    type="text" 
-                    placeholder="e.g., M/Y Serenity, 50m" 
-                    className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-white/30 focus:outline-none focus:border-[#D4AF37] transition-colors"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-xs font-bold uppercase tracking-widest text-[#C0C0C0] ml-1">Project Type</label>
-                  <select className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-[#D4AF37] transition-colors appearance-none">
-                    <option value="" className="bg-[#0A192F]">Select a tier...</option>
-                    <option value="essential" className="bg-[#0A192F]">Tier 1 - Essential</option>
-                    <option value="professional" className="bg-[#0A192F]">Tier 2 - Professional</option>
-                    <option value="signature" className="bg-[#0A192F]">Tier 3 - Signature</option>
-                    <option value="generative" className="bg-[#0A192F]">Generative Content / Yacht Avatar</option>
-                    <option value="custom" className="bg-[#0A192F]">Custom Project</option>
-                  </select>
-                </div>
+            {quoteStatus === 'sent' ? (
+              <div className="text-center py-12 relative z-10">
+                <CheckCircle2 className="w-14 h-14 text-[#D4AF37] mx-auto mb-6" aria-hidden="true" />
+                <h2 ref={quoteSuccessRef} tabIndex={-1} className="font-display font-semibold tracking-tight text-4xl mb-4 text-white focus:outline-none">Request received</h2>
+                <p className="text-[#C0C0C0] font-light leading-relaxed max-w-sm mx-auto mb-8">
+                  Thank you. We'll review your vessel and reply to the email address you gave us.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setQuoteStatus('idle')}
+                  className="inline-flex items-center justify-center px-8 py-4 border border-white/20 text-white hover:border-[#D4AF37] hover:text-[#D4AF37] transition-all duration-300 uppercase tracking-widest text-xs font-bold rounded-full"
+                >
+                  Send another request
+                </button>
               </div>
-              
-              <div className="space-y-2">
-                <label className="text-xs font-bold uppercase tracking-widest text-[#C0C0C0] ml-1">Email Address</label>
-                <input 
-                  type="email" 
-                  placeholder="contact@example.com" 
-                  className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-white/30 focus:outline-none focus:border-[#D4AF37] transition-colors"
-                />
-              </div>
+            ) : (
+              <>
+                <div className="text-center mb-10 relative z-10">
+                  <h2 className="font-display font-semibold tracking-tight text-4xl mb-4 text-white">Ready to elevate your fleet?</h2>
+                  <p className="text-[#C0C0C0] font-light">Request a custom quote for your vessel.</p>
+                </div>
 
-              <button type="submit" className="w-full py-4 bg-[#D4AF37] text-[#030508] uppercase tracking-widest text-sm font-bold rounded-full hover:bg-white transition-colors flex items-center justify-center group">
-                Submit Request
-                <ChevronRight className="w-4 h-4 ml-2 group-hover:translate-x-1 transition-transform" />
-              </button>
-            </form>
+                <form className="space-y-6 relative" onSubmit={handleQuoteSubmit}>
+                  {honeypot}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="space-y-2">
+                      <label htmlFor={id('yacht')} className="text-xs font-bold uppercase tracking-widest text-[#C0C0C0] ml-1">Yacht Name / Length</label>
+                      <input
+                        id={id('yacht')}
+                        name="yacht"
+                        type="text"
+                        maxLength={120}
+                        placeholder="e.g., M/Y Serenity, 50m"
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-white/50 focus:outline-none focus:border-[#D4AF37] transition-colors"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <label htmlFor={id('projectType')} className="text-xs font-bold uppercase tracking-widest text-[#C0C0C0] ml-1">Project Type</label>
+                      <select id={id('projectType')} name="projectType" className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-[#D4AF37] transition-colors appearance-none">
+                        <option value="" className="bg-[#0A192F]">Select a tier...</option>
+                        <option value="essential" className="bg-[#0A192F]">Tier 1 - Essential</option>
+                        <option value="professional" className="bg-[#0A192F]">Tier 2 - Professional</option>
+                        <option value="signature" className="bg-[#0A192F]">Tier 3 - Signature</option>
+                        <option value="generative" className="bg-[#0A192F]">Generative Content / Yacht Avatar</option>
+                        <option value="custom" className="bg-[#0A192F]">Custom Project</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label htmlFor={id('email')} className="text-xs font-bold uppercase tracking-widest text-[#C0C0C0] ml-1">
+                      Email Address <span className="text-[#D4AF37]" aria-hidden="true">*</span>
+                    </label>
+                    <input
+                      id={id('email')}
+                      name="email"
+                      type="email"
+                      required
+                      autoComplete="email"
+                      placeholder="contact@example.com"
+                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white placeholder-white/50 focus:outline-none focus:border-[#D4AF37] transition-colors"
+                    />
+                  </div>
+
+                  <button
+                    type="submit"
+                    disabled={quoteStatus === 'sending'}
+                    className="w-full py-4 bg-[#D4AF37] text-[#030508] uppercase tracking-widest text-sm font-bold rounded-full hover:bg-white transition-colors flex items-center justify-center group disabled:opacity-70 disabled:cursor-wait disabled:hover:bg-[#D4AF37]"
+                  >
+                    {quoteStatus === 'sending' ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" aria-hidden="true" />
+                        Sending…
+                      </>
+                    ) : (
+                      <>
+                        Submit Request
+                        <ChevronRight className="w-4 h-4 ml-2 group-hover:translate-x-1 transition-transform" aria-hidden="true" />
+                      </>
+                    )}
+                  </button>
+
+                  {quoteStatus === 'error' && (
+                    <p role="alert" className="text-sm text-[#F87171] text-center leading-relaxed">
+                      We couldn't send your request. Your details are still here, so please try again in a moment.
+                    </p>
+                  )}
+                </form>
+              </>
+            )}
           </motion.div>
 
           {/* Join the Association */}
@@ -1618,15 +1997,17 @@ function FooterSection() {
             className="glass-panel p-8 md:p-12 rounded-2xl relative overflow-hidden flex flex-col justify-center text-center"
           >
             <div className="absolute inset-0 bg-gradient-to-br from-[#D4AF37]/10 to-transparent opacity-50" />
-            
+
             <div className="relative z-10">
-              <Camera className="w-12 h-12 text-[#D4AF37] mx-auto mb-6" />
+              <Camera className="w-12 h-12 text-[#D4AF37] mx-auto mb-6" aria-hidden="true" />
               <h2 className="font-display font-semibold tracking-tight text-4xl mb-4 text-white">Join the association</h2>
               <p className="text-[#C0C0C0] font-light leading-relaxed mb-10 max-w-md mx-auto">
                 Are you a visionary cinematographer, drone pilot, or photographer with a passion for the sea? We are always looking for top-tier talent to join our curated network.
               </p>
-              
-              <button 
+
+              <button
+                type="button"
+                aria-haspopup="dialog"
                 onClick={() => setIsModalOpen(true)}
                 className="inline-flex items-center justify-center px-10 py-4 bg-white/5 border border-white/20 text-white hover:bg-[#D4AF37] hover:border-[#D4AF37] hover:text-[#030508] transition-all duration-300 uppercase tracking-widest text-sm font-bold rounded-full"
               >
@@ -1640,14 +2021,14 @@ function FooterSection() {
           <div className="font-display font-bold text-xl tracking-widest mb-6 md:mb-0">
             YMCA<span className="text-[#D4AF37]">.</span>
           </div>
-          
-          <div className="flex space-x-6 mb-6 md:mb-0">
-            <a href="https://instagram.com" target="_blank" rel="noopener noreferrer" className="text-[#C0C0C0] hover:text-[#D4AF37] transition-colors"><Instagram className="w-5 h-5" /></a>
-            <a href="https://youtube.com" target="_blank" rel="noopener noreferrer" className="text-[#C0C0C0] hover:text-[#D4AF37] transition-colors"><Youtube className="w-5 h-5" /></a>
-            <a href="https://linkedin.com" target="_blank" rel="noopener noreferrer" className="text-[#C0C0C0] hover:text-[#D4AF37] transition-colors"><Linkedin className="w-5 h-5" /></a>
+
+          <div className="flex gap-2 mb-6 md:mb-0">
+            <a href="https://instagram.com" target="_blank" rel="noopener noreferrer" aria-label="Instagram" className="w-11 h-11 inline-flex items-center justify-center text-[#C0C0C0] hover:text-[#D4AF37] transition-colors"><Instagram className="w-5 h-5" /></a>
+            <a href="https://youtube.com" target="_blank" rel="noopener noreferrer" aria-label="YouTube" className="w-11 h-11 inline-flex items-center justify-center text-[#C0C0C0] hover:text-[#D4AF37] transition-colors"><Youtube className="w-5 h-5" /></a>
+            <a href="https://linkedin.com" target="_blank" rel="noopener noreferrer" aria-label="LinkedIn" className="w-11 h-11 inline-flex items-center justify-center text-[#C0C0C0] hover:text-[#D4AF37] transition-colors"><Linkedin className="w-5 h-5" /></a>
           </div>
         </div>
-        
+
         <div className="text-center mt-12 text-xs text-[#C0C0C0]/50 font-medium">
           &copy; {new Date().getFullYear()} YMCA Yacht Marketing & Content Agency. All rights reserved.
         </div>
@@ -1660,7 +2041,7 @@ function FooterSection() {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6"
-            onClick={() => setIsModalOpen(false)}
+            onClick={closeApplication}
           >
             <div className="absolute inset-0 bg-[#030508]/90 backdrop-blur-xl" />
             <motion.div
@@ -1669,51 +2050,60 @@ function FooterSection() {
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
               className="relative w-full max-w-2xl bg-[#0a0a16] border border-white/10 rounded-2xl overflow-hidden shadow-2xl max-h-[90vh] flex flex-col"
               onClick={(e) => e.stopPropagation()}
+              ref={dialogRef}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby={id('dialog-title')}
+              tabIndex={-1}
             >
-              <button
-                onClick={() => setIsModalOpen(false)}
-                className="absolute top-4 right-4 z-30 p-2 bg-black/50 hover:bg-[#D4AF37] text-white hover:text-black rounded-full transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
+              <DialogCloseButton onClick={closeApplication} />
 
               <div className="p-8 md:p-12 overflow-y-auto custom-scrollbar">
-                {isSubmitted ? (
-                  <motion.div 
+                {applicationStatus === 'sent' ? (
+                  <motion.div
                     initial={{ opacity: 0, scale: 0.9 }}
                     animate={{ opacity: 1, scale: 1 }}
                     className="text-center py-16"
                   >
-                    <CheckCircle2 className="w-16 h-16 text-[#D4AF37] mx-auto mb-6" />
-                    <h3 className="font-display text-3xl font-bold mb-4 text-white">Application Received</h3>
-                    <p className="text-[#C0C0C0] font-light leading-relaxed">Thank you for your interest in joining YMCA. Our team will review your portfolio and get back to you soon.</p>
+                    <CheckCircle2 className="w-16 h-16 text-[#D4AF37] mx-auto mb-6" aria-hidden="true" />
+                    <h3 id={id('dialog-title')} ref={applicationSuccessRef} tabIndex={-1} className="font-display text-3xl font-bold mb-4 text-white focus:outline-none">Application Received</h3>
+                    <p className="text-[#C0C0C0] font-light leading-relaxed mb-10">Thank you for your interest in joining YMCA. Our team will review your portfolio and get back to you soon.</p>
+                    <button
+                      type="button"
+                      onClick={closeApplication}
+                      className="inline-flex items-center justify-center px-10 py-4 border border-white/20 text-white hover:border-[#D4AF37] hover:text-[#D4AF37] transition-all duration-300 uppercase tracking-widest text-xs font-bold rounded-full"
+                    >
+                      Close
+                    </button>
                   </motion.div>
                 ) : (
                   <>
-                    <h3 className="font-display text-3xl font-bold mb-2 text-white">Creator Application</h3>
+                    <h3 id={id('dialog-title')} className="font-display text-3xl font-bold mb-2 text-white">Creator Application</h3>
                     <p className="text-[#C0C0C0] text-sm mb-8">Join our curated network of maritime media professionals.</p>
 
-                    <form onSubmit={handleSubmit} className="space-y-6">
+                    <form onSubmit={handleApplicationSubmit} className="space-y-6 relative">
+                      {honeypot}
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                         <div>
-                          <label className="block text-[10px] uppercase tracking-widest text-[#C0C0C0]/70 mb-2">Full Name</label>
-                          <input required type="text" className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-[#D4AF37] transition-colors" placeholder="John Doe" />
+                          <label htmlFor={id('name')} className="block text-[10px] uppercase tracking-widest text-[#C0C0C0]/70 mb-2">Full Name</label>
+                          <input id={id('name')} name="name" required type="text" autoComplete="name" maxLength={120} className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-[#D4AF37] transition-colors" placeholder="John Doe" />
                         </div>
                         <div>
-                          <label className="block text-[10px] uppercase tracking-widest text-[#C0C0C0]/70 mb-2">Email Address</label>
-                          <input required type="email" className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-[#D4AF37] transition-colors" placeholder="john@example.com" />
+                          <label htmlFor={id('applicantEmail')} className="block text-[10px] uppercase tracking-widest text-[#C0C0C0]/70 mb-2">Email Address</label>
+                          <input id={id('applicantEmail')} name="email" required type="email" autoComplete="email" className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-[#D4AF37] transition-colors" placeholder="john@example.com" />
                         </div>
                       </div>
 
-                      <div>
-                        <label className="block text-[10px] uppercase tracking-widest text-[#C0C0C0]/70 mb-3">Primary Skills</label>
-                        <div className="flex flex-wrap gap-2">
+                      <fieldset aria-describedby={skillsError ? id('skills-error') : undefined}>
+                        <legend className="block text-[10px] uppercase tracking-widest text-[#C0C0C0]/70 mb-3">Primary Skills</legend>
+                        <div id={id('skills')} className="flex flex-wrap gap-2">
                           {availableSkills.map(skill => (
                             <button
                               key={skill}
                               type="button"
+                              aria-pressed={selectedSkills.includes(skill)}
                               onClick={() => toggleSkill(skill)}
-                              className={`px-4 py-2 rounded-full text-xs font-medium transition-all duration-300 border ${
+                              className={`min-h-[44px] px-4 rounded-full text-xs font-medium transition-all duration-300 border ${
                                 selectedSkills.includes(skill)
                                   ? 'bg-[#D4AF37] text-[#030508] border-[#D4AF37]'
                                   : 'bg-white/5 text-[#C0C0C0] border-white/10 hover:border-[#D4AF37]/50 hover:text-white'
@@ -1723,29 +2113,48 @@ function FooterSection() {
                             </button>
                           ))}
                         </div>
-                        {selectedSkills.length === 0 && (
-                          <input type="text" required className="opacity-0 h-0 w-0 absolute" />
+                        {skillsError && (
+                          <p id={id('skills-error')} role="alert" className="mt-3 text-sm text-[#F87171]">
+                            Select at least one skill so we know what you do.
+                          </p>
                         )}
+                      </fieldset>
+
+                      <div>
+                        <label htmlFor={id('portfolioUrl')} className="block text-[10px] uppercase tracking-widest text-[#C0C0C0]/70 mb-2">Portfolio / Showreel URL</label>
+                        <input id={id('portfolioUrl')} name="portfolioUrl" required type="url" className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-[#D4AF37] transition-colors" placeholder="https://vimeo.com/..." />
                       </div>
 
                       <div>
-                        <label className="block text-[10px] uppercase tracking-widest text-[#C0C0C0]/70 mb-2">Portfolio / Showreel URL</label>
-                        <input required type="url" className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-[#D4AF37] transition-colors" placeholder="https://vimeo.com/..." />
+                        <label htmlFor={id('equipment')} className="block text-[10px] uppercase tracking-widest text-[#C0C0C0]/70 mb-2">Primary Equipment</label>
+                        <input id={id('equipment')} name="equipment" type="text" maxLength={300} className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-[#D4AF37] transition-colors" placeholder="e.g., RED Komodo, DJI Mavic 3 Pro, Sony FX3" />
                       </div>
 
                       <div>
-                        <label className="block text-[10px] uppercase tracking-widest text-[#C0C0C0]/70 mb-2">Primary Equipment</label>
-                        <input type="text" className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-[#D4AF37] transition-colors" placeholder="e.g., RED Komodo, DJI Mavic 3 Pro, Sony FX3" />
+                        <label htmlFor={id('experience')} className="block text-[10px] uppercase tracking-widest text-[#C0C0C0]/70 mb-2">Maritime Experience</label>
+                        <textarea id={id('experience')} name="experience" required rows={4} maxLength={3000} className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-[#D4AF37] transition-colors resize-none" placeholder="Have you worked on yachts before? Are you comfortable at sea?"></textarea>
                       </div>
 
-                      <div>
-                        <label className="block text-[10px] uppercase tracking-widest text-[#C0C0C0]/70 mb-2">Maritime Experience</label>
-                        <textarea required rows={4} className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-[#D4AF37] transition-colors resize-none" placeholder="Have you worked on yachts before? Are you comfortable at sea?"></textarea>
-                      </div>
-
-                      <button type="submit" className="w-full py-4 bg-[#D4AF37] text-[#030508] hover:bg-white transition-all duration-300 uppercase tracking-widest text-xs font-bold rounded-lg mt-4">
-                        Submit Application
+                      <button
+                        type="submit"
+                        disabled={applicationStatus === 'sending'}
+                        className="w-full py-4 bg-[#D4AF37] text-[#030508] hover:bg-white transition-all duration-300 uppercase tracking-widest text-xs font-bold rounded-lg mt-4 flex items-center justify-center disabled:opacity-70 disabled:cursor-wait disabled:hover:bg-[#D4AF37]"
+                      >
+                        {applicationStatus === 'sending' ? (
+                          <>
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" aria-hidden="true" />
+                            Sending…
+                          </>
+                        ) : (
+                          'Submit Application'
+                        )}
                       </button>
+
+                      {applicationStatus === 'error' && (
+                        <p role="alert" className="text-sm text-[#F87171] text-center leading-relaxed">
+                          We couldn't send your application. Your answers are still here, so please try again in a moment.
+                        </p>
+                      )}
                     </form>
                   </>
                 )}

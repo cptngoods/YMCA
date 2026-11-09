@@ -25,6 +25,28 @@ html {
   scroll-behavior: smooth;
 }
 
+/* Keyboard focus, in the brand gold */
+:focus-visible {
+  outline: 2px solid var(--color-gold);
+  outline-offset: 3px;
+}
+
+/* Reduced motion: no smooth scrolling, no drifting background, no pulsing */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  .aurora-bg .aurora-blob {
+    animation: none;
+  }
+}
+
+/* Visitor paused background motion with the hero control */
+.motion-paused .aurora-blob,
+.motion-paused .animate-pulse {
+  animation-play-state: paused;
+}
+
 /* Glassmorphism utilities */
 .glass-panel {
   background: rgba(15, 15, 20, 0.4);
